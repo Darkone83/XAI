@@ -12,6 +12,16 @@ XAI (pronounced SAI) is a small activity-light controller for the original Xbox.
 
 The main controller stays inside the Xbox and connects to the front LED board with a small FPC cable.
 
+## Features
+
+- Independent RGB LAN and HDD activity indicators
+- 16 selectable colors per indicator
+- 10 global brightness levels
+- Reversible LED positioning
+- Persistent settings
+- One-button setup and factory reset
+- Compact two-board design with FPC connection
+
 ## Default Settings
 
 - **RGB1 / LAN:** Amber
