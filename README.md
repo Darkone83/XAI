@@ -1,6 +1,14 @@
 # XAI — Xbox Activity Indicator
 
-XAI is a small activity-light controller for the original Xbox. It provides configurable RGB indicators for **LAN** and **HDD** activity while keeping the install simple and removable.
+<div align=center>
+
+<img src="https://github.com/Darkone83/XAI/blob/main/img/xai.png" width=400> <img src="https://github.com/Darkone83/XAI/blob/main/img/Darkone83.png" width=400>
+
+<img src="https://github.com/Darkone83/XAI/blob/main/img/3D_XAI_MB_Front.png" width=400> <img src="https://github.com/Darkone83/XAI/blob/main/img/3D_XAI_LED_Front.png" width=400>
+
+</div>
+
+XAI (pronounced SAI) is a small activity-light controller for the original Xbox. It provides configurable RGB indicators for **LAN** and **HDD** activity while keeping the install simple and removable.
 
 The main controller stays inside the Xbox and connects to the front LED board with a small FPC cable.
 
