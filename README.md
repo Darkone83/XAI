@@ -174,9 +174,9 @@ Links will be added once hardware availability is finalized.
 
 Purchase link: <a href="https://www.amazon.com/dp/B0C6XRCS9Q?ref=ppx_yo2ov_dt_b_fed_asin_title">Amazon</a>
 
-### B. FPC Cable
+### B. FFC Cable
 
-**5-pin FPC cable**
+**5-pin FFC cable**
 
 Purchase link: <a href="https://www.aliexpress.us/item/3256810089762446.html?spm=a2g0o.order_list.order_list_main.4.76431802nWzUqa&gatewayAdapt=glo2usa">AliExpress</a> 5p 200mm Forward direction.
 
