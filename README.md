@@ -184,7 +184,7 @@ Purchase link: <a href="https://www.aliexpress.us/item/3256810089762446.html?spm
 
 **XAI main board / LED board / kit**
 
-Purchase link: <a href="https://www.darkonecustoms.com/store">Darkone Customs</a>
+Purchase link: <a href="https://www.darkonecustoms.com/store/p/xai">Darkone Customs</a>
 
 ## Notes
 
