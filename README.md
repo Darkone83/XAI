@@ -20,6 +20,7 @@ The main controller stays inside the Xbox and connects to the front LED board wi
 - Reversible LED positioning
 - Persistent settings
 - One-button setup and factory reset
+- Quick activity LED on/off toggle during normal operation
 - Compact two-board design with FPC connection
 
 ## Default Settings
@@ -34,6 +35,15 @@ Settings are saved in flash and retained after power-off.
 ## Controls
 
 XAI uses a single setup button.
+
+### Normal Operation
+
+While XAI is operating normally:
+
+- **Double press** the setup button to turn the LAN/HDD activity LEDs **off**.
+- **Double press** again to turn the activity LEDs **back on**.
+- This on/off state is temporary and is **not saved**. XAI starts with activity indication enabled after each power-up.
+- Setup, save, and factory-reset LED feedback will still be shown while normal activity indication is off.
 
 ### Enter Setup
 
@@ -105,6 +115,14 @@ XAI will restore:
 A successful reset is confirmed by both LEDs flashing:
 
 **Green → Orange → Red**
+
+## Installation
+
+Basic Xbox wiring and installation instructions are available here:
+
+[**XAI Installation Guide**](install/README.md)
+
+The install guide covers the required **3.3V, GND, LAN, and HDD** connection points and basic board/cable installation.
 
 ## Flashing Prebuilt Firmware
 

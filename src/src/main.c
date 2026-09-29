@@ -19,6 +19,8 @@
  *   HDD input  (PC2) -> logical HDD indicator.
  *   Default mapping: RGB1/PC4 = LAN, RGB2/PC6 = HDD.
  *   Reverse setting swaps the two physical indicator positions.
+ *   Double press toggles normal activity indication on/off.
+ *   Activity indication always starts enabled after power-up.
  *
  * Defaults:
  *   LAN = Amber, HDD = Red, brightness = 100%, reverse = off.
@@ -585,6 +587,13 @@ typedef enum
 static app_mode_t g_mode = MODE_NORMAL;
 static setup_stage_t g_setup_stage = SETUP_LAN_COLOR;
 
+/*
+ * Runtime-only activity display state.
+ * This is intentionally not stored in flash: every power-up starts enabled.
+ * Setup/save/reset feedback is always shown regardless of this flag.
+ */
+static uint8_t g_activity_enabled = 1U;
+
 static void show_setup_preview(void)
 {
     rgb_t lan = kOff;
@@ -716,6 +725,7 @@ static uint8_t factory_reset(void)
 
     g_mode = MODE_NORMAL;
     g_setup_stage = SETUP_LAN_COLOR;
+    g_activity_enabled = 1U;
 
     show_reset_success();
     return 1U;
@@ -762,6 +772,38 @@ int main(void)
             {
                 enter_setup();
                 last_input_mask = 0xFFU;
+            }
+            else if (event == BUTTON_DOUBLE)
+            {
+                /*
+                 * Runtime activity display toggle.
+                 * This state is not written to flash.
+                 */
+                g_activity_enabled ^= 1U;
+
+                if (!g_activity_enabled)
+                {
+                    leds_off();
+                }
+
+                /*
+                 * Force an immediate refresh when re-enabled so the LEDs
+                 * reflect the current LAN/HDD state without waiting for the
+                 * next input transition.
+                 */
+                last_input_mask = 0xFFU;
+            }
+            else if (!g_activity_enabled)
+            {
+                /*
+                 * Inputs continue to be sampled by hardware, but normal
+                 * activity indication stays dark until double-clicked on.
+                 */
+                if (last_input_mask != 0U)
+                {
+                    leds_off();
+                    last_input_mask = 0U;
+                }
             }
             else
             {
