@@ -21,6 +21,9 @@ The main controller stays inside the Xbox and connects to the front LED board wi
 - Persistent settings
 - One-button setup and factory reset
 - Quick activity LED on/off toggle during normal operation
+- 5-click LED self-diagnostic
+- 15-second setup inactivity timeout
+- Smoothed LAN/HDD activity indication for short pulses
 - Compact two-board design with FPC connection
 
 ## Default Settings
@@ -43,7 +46,12 @@ While XAI is operating normally:
 - **Double press** the setup button to turn the LAN/HDD activity LEDs **off**.
 - **Double press** again to turn the activity LEDs **back on**.
 - This on/off state is temporary and is **not saved**. XAI starts with activity indication enabled after each power-up.
-- Setup, save, and factory-reset LED feedback will still be shown while normal activity indication is off.
+- Setup, save, diagnostic, and factory-reset LED feedback will still be shown while normal activity indication is off.
+- **Five rapid presses** starts the LED self-diagnostic.
+
+### Activity Indication
+
+LAN and HDD activity is shown immediately when detected. Very short activity pulses are held briefly so the indicators remain visible rather than appearing as extremely fast flicker.
 
 ### Enter Setup
 
@@ -100,6 +108,24 @@ Single press to swap the two positions.
 Hold the button for **3 seconds** while in setup mode.
 
 Both LEDs will blink **green** and normal operation will resume.
+
+### Setup Timeout
+
+If no button input is detected for **15 seconds** while in setup mode, XAI will exit setup and return to normal operation.
+
+Unsaved changes are discarded. Any valid setup button action restarts the 15-second timer.
+
+## Self Diagnostics
+
+While XAI is operating normally, press the setup button **five times rapidly** to start the LED self-test.
+
+The diagnostic sequence checks:
+
+1. **Color output** — both LEDs cycle through several RGB colors.
+2. **Brightness** — both LEDs step through all 10 brightness levels.
+3. **RGB1 / RGB2 output** — the two physical LEDs alternate on and off.
+
+The diagnostic does **not** change or save any settings. XAI returns to normal activity indication when the test is complete.
 
 ## Factory Reset
 

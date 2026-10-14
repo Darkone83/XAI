@@ -20,7 +20,9 @@
  *   Default mapping: RGB1/PC4 = LAN, RGB2/PC6 = HDD.
  *   Reverse setting swaps the two physical indicator positions.
  *   Double press toggles normal activity indication on/off.
+ *   Five rapid presses run a non-destructive LED self-diagnostic.
  *   Activity indication always starts enabled after power-up.
+ *   LAN/HDD activity is pulse-stretched to a 50 ms minimum visible on-time.
  *
  * Defaults:
  *   LAN = Amber, HDD = Red, brightness = 100%, reverse = off.
@@ -33,6 +35,7 @@
  *   Reverse preview -> LAN position is green, HDD position is red.
  *   Hold button 3 s -> save all settings, blink both LEDs green twice,
  *                      then resume normal operation.
+ *   15 s inactivity   -> discard unsaved changes and return to normal.
  *
  * Factory reset:
  *   Hold button 10 s -> restore defaults and save them to flash.
@@ -57,12 +60,16 @@
 #define DEBOUNCE_MS        20U
 #define LONG_PRESS_MS    3000U
 #define RESET_HOLD_MS    10000U
-#define DOUBLE_PRESS_MS   350U
+#define DOUBLE_PRESS_MS    350U
+#define ACTIVITY_HOLD_MS    50U
+#define SETUP_TIMEOUT_MS  15000U
 
-#define DEBOUNCE_TICKS      (DEBOUNCE_MS / LOOP_MS)
-#define LONG_PRESS_TICKS    (LONG_PRESS_MS / LOOP_MS)
-#define RESET_HOLD_TICKS    (RESET_HOLD_MS / LOOP_MS)
-#define DOUBLE_PRESS_TICKS  (DOUBLE_PRESS_MS / LOOP_MS)
+#define DEBOUNCE_TICKS       (DEBOUNCE_MS / LOOP_MS)
+#define LONG_PRESS_TICKS     (LONG_PRESS_MS / LOOP_MS)
+#define RESET_HOLD_TICKS     (RESET_HOLD_MS / LOOP_MS)
+#define DOUBLE_PRESS_TICKS   (DOUBLE_PRESS_MS / LOOP_MS)
+#define ACTIVITY_HOLD_TICKS  (ACTIVITY_HOLD_MS / LOOP_MS)
+#define SETUP_TIMEOUT_TICKS  (SETUP_TIMEOUT_MS / LOOP_MS)
 
 #define COLOR_COUNT        16U
 #define BRIGHTNESS_LEVELS  10U
@@ -401,6 +408,7 @@ typedef enum
     BUTTON_NONE = 0,
     BUTTON_SINGLE,
     BUTTON_DOUBLE,
+    BUTTON_DIAGNOSTIC,
     BUTTON_LONG,
     BUTTON_RESET
 } button_event_t;
@@ -500,14 +508,16 @@ static button_event_t button_poll(void)
 
             if (!g_button.long_sent && !g_button.reset_sent)
             {
-                ++g_button.click_count;
-                g_button.click_wait_ticks = 0U;
+                /*
+                 * Accumulate clicks until the inter-click window expires.
+                 * This lets normal mode distinguish 2 clicks (activity toggle)
+                 * from 5 clicks (diagnostics) without firing the double-click
+                 * action prematurely.
+                 */
+                if (g_button.click_count < 5U)
+                    ++g_button.click_count;
 
-                if (g_button.click_count >= 2U)
-                {
-                    g_button.click_count = 0U;
-                    return BUTTON_DOUBLE;
-                }
+                g_button.click_wait_ticks = 0U;
             }
             else
             {
@@ -550,20 +560,103 @@ static button_event_t button_poll(void)
             return BUTTON_RESET;
         }
     }
-    else if (g_button.click_count == 1U)
+    else if (g_button.click_count > 0U)
     {
         if (g_button.click_wait_ticks < DOUBLE_PRESS_TICKS)
             ++g_button.click_wait_ticks;
 
         if (g_button.click_wait_ticks >= DOUBLE_PRESS_TICKS)
         {
+            uint8_t clicks = g_button.click_count;
+
             g_button.click_count = 0U;
             g_button.click_wait_ticks = 0U;
-            return BUTTON_SINGLE;
+
+            if (clicks == 1U)
+                return BUTTON_SINGLE;
+
+            if (clicks == 2U)
+                return BUTTON_DOUBLE;
+
+            if (clicks >= 5U)
+                return BUTTON_DIAGNOSTIC;
+
+            /*
+             * Three or four clicks are intentionally ignored. They are not
+             * assigned a user-facing function and should not accidentally
+             * trigger the normal double-click action.
+             */
         }
     }
 
     return BUTTON_NONE;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Self diagnostics                                                          */
+/* ------------------------------------------------------------------------- */
+
+static void run_diagnostics(void)
+{
+    static const rgb_t diagnostic_colors[] =
+    {
+        {255,   0,   0}, /* Red     */
+        {  0, 255,   0}, /* Green   */
+        {  0,   0, 255}, /* Blue    */
+        {255, 128,   0}, /* Amber   */
+        {  0, 255, 255}, /* Cyan    */
+        {255,   0, 255}, /* Magenta */
+        {255, 255, 255}  /* White   */
+    };
+
+    const rgb_t white = {255, 255, 255};
+    uint8_t i;
+
+    /*
+     * Stage 1: color test.
+     * Both physical LEDs receive the same full-intensity color sequence.
+     */
+    for (i = 0U;
+         i < (uint8_t)(sizeof(diagnostic_colors) / sizeof(diagnostic_colors[0]));
+         ++i)
+    {
+        leds_write(diagnostic_colors[i], diagnostic_colors[i]);
+        Delay_Ms(180);
+    }
+
+    leds_off();
+    Delay_Ms(120);
+
+    /*
+     * Stage 2: brightness test.
+     * Both LEDs step from 10% through 100% white.
+     */
+    for (i = 1U; i <= BRIGHTNESS_LEVELS; ++i)
+    {
+        rgb_t level = scale_color(white, i);
+        leds_write(level, level);
+        Delay_Ms(120);
+    }
+
+    leds_off();
+    Delay_Ms(120);
+
+    /*
+     * Stage 3: physical output test.
+     * Address RGB1/PC4 and RGB2/PC6 directly so this test is independent of
+     * the saved LAN/HDD reverse setting.
+     */
+    for (i = 0U; i < 3U; ++i)
+    {
+        leds_write(white, kOff); /* RGB1 only */
+        Delay_Ms(220);
+
+        leds_write(kOff, white); /* RGB2 only */
+        Delay_Ms(220);
+    }
+
+    leds_off();
+    Delay_Ms(100);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -738,6 +831,9 @@ static uint8_t factory_reset(void)
 int main(void)
 {
     uint8_t last_input_mask = 0xFFU;
+    uint16_t lan_hold_ticks = 0U;
+    uint16_t hdd_hold_ticks = 0U;
+    uint16_t setup_idle_ticks = 0U;
 
     SystemCoreClockUpdate();
     Delay_Init();
@@ -761,6 +857,9 @@ int main(void)
         if (event == BUTTON_RESET)
         {
             (void)factory_reset();
+            lan_hold_ticks = 0U;
+            hdd_hold_ticks = 0U;
+            setup_idle_ticks = 0U;
             last_input_mask = 0xFFU;
             Delay_Ms(LOOP_MS);
             continue;
@@ -770,7 +869,29 @@ int main(void)
         {
             if (event == BUTTON_LONG)
             {
+                lan_hold_ticks = 0U;
+                hdd_hold_ticks = 0U;
+                setup_idle_ticks = 0U;
                 enter_setup();
+                last_input_mask = 0xFFU;
+            }
+            else if (event == BUTTON_DIAGNOSTIC)
+            {
+                /*
+                 * Five rapid clicks: run a non-destructive LED self-test.
+                 * Saved configuration and the runtime activity on/off state
+                 * are left unchanged.
+                 */
+                lan_hold_ticks = 0U;
+                hdd_hold_ticks = 0U;
+
+                run_diagnostics();
+
+                /*
+                 * Reset the button recognizer after the blocking diagnostic
+                 * sequence and force the current activity state to refresh.
+                 */
+                button_init();
                 last_input_mask = 0xFFU;
             }
             else if (event == BUTTON_DOUBLE)
@@ -780,6 +901,13 @@ int main(void)
                  * This state is not written to flash.
                  */
                 g_activity_enabled ^= 1U;
+
+                /*
+                 * Do not preserve a stale activity pulse across an off/on
+                 * toggle. Re-enabling starts from the current raw inputs.
+                 */
+                lan_hold_ticks = 0U;
+                hdd_hold_ticks = 0U;
 
                 if (!g_activity_enabled)
                 {
@@ -796,9 +924,13 @@ int main(void)
             else if (!g_activity_enabled)
             {
                 /*
-                 * Inputs continue to be sampled by hardware, but normal
-                 * activity indication stays dark until double-clicked on.
+                 * Normal activity indication stays dark until double-clicked
+                 * back on. Clear the pulse-stretch timers so old activity
+                 * cannot reappear when indication is re-enabled.
                  */
+                lan_hold_ticks = 0U;
+                hdd_hold_ticks = 0U;
+
                 if (last_input_mask != 0U)
                 {
                     leds_off();
@@ -809,10 +941,34 @@ int main(void)
             {
                 uint8_t input_mask = 0U;
 
+                /*
+                 * Do not debounce the Xbox activity inputs in the conventional
+                 * sense; short pulses are valid activity. Turn on immediately,
+                 * then hold each indicator for at least ACTIVITY_HOLD_MS after
+                 * the last observed pulse.
+                 */
                 if (input1_active())
-                    input_mask |= 0x01U; /* LAN */
+                {
+                    lan_hold_ticks = ACTIVITY_HOLD_TICKS;
+                }
+                else if (lan_hold_ticks > 0U)
+                {
+                    --lan_hold_ticks;
+                }
 
                 if (input2_active())
+                {
+                    hdd_hold_ticks = ACTIVITY_HOLD_TICKS;
+                }
+                else if (hdd_hold_ticks > 0U)
+                {
+                    --hdd_hold_ticks;
+                }
+
+                if (lan_hold_ticks > 0U)
+                    input_mask |= 0x01U; /* LAN */
+
+                if (hdd_hold_ticks > 0U)
                     input_mask |= 0x02U; /* HDD */
 
                 if (input_mask != last_input_mask)
@@ -834,7 +990,39 @@ int main(void)
         }
         else
         {
-            if (event == BUTTON_SINGLE)
+            /* Activity inputs are ignored while configuring XAI. */
+            lan_hold_ticks = 0U;
+            hdd_hold_ticks = 0U;
+
+            /*
+             * Setup auto-exit: any valid setup action restarts the 15-second
+             * inactivity window. If it expires, unsaved edits are discarded.
+             */
+            if ((event == BUTTON_SINGLE) ||
+                (event == BUTTON_DOUBLE) ||
+                (event == BUTTON_LONG))
+            {
+                setup_idle_ticks = 0U;
+            }
+            else if (setup_idle_ticks < SETUP_TIMEOUT_TICKS)
+            {
+                ++setup_idle_ticks;
+            }
+
+            if (setup_idle_ticks >= SETUP_TIMEOUT_TICKS)
+            {
+                g_mode = MODE_NORMAL;
+                g_setup_stage = SETUP_LAN_COLOR;
+                setup_idle_ticks = 0U;
+                leds_off();
+
+                /*
+                 * Force normal activity indication to reflect the live inputs
+                 * immediately on return. Saved settings were never modified.
+                 */
+                last_input_mask = 0xFFU;
+            }
+            else if (event == BUTTON_SINGLE)
             {
                 if (g_setup_stage == SETUP_LAN_COLOR)
                 {
@@ -878,6 +1066,7 @@ int main(void)
             else if (event == BUTTON_LONG)
             {
                 save_and_exit_setup();
+                setup_idle_ticks = 0U;
                 last_input_mask = 0xFFU;
             }
         }
