@@ -13,7 +13,7 @@ The XAI main board can then be mounted in a safe location inside the Xbox, with 
 
 > Disconnect power from the Xbox before soldering or connecting XAI.
 
-## 1. 3.3V and Ground
+## 1. 5V and Ground
 
 For simplicity, use the Xbox **LPC header** for power and ground.
 
@@ -49,6 +49,8 @@ Connect the four Xbox-side wires to the XAI SH connector/harness:
 | LPC Pin 12 | GND |
 | LAN LED point | LAN |
 | HDD LED point | HDD |
+
+![CN1 Pinout](CN1.png)
 
 After the four connections are made:
 
