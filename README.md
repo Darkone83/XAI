@@ -152,7 +152,7 @@ Basic Xbox wiring and installation instructions are available here:
 
 [**XAI Installation Guide**](install/README.md)
 
-The install guide covers the required **3.3V, GND, LAN, and HDD** connection points and basic board/cable installation.
+The install guide covers the required **VCC, GND, LAN, and HDD** connection points and basic board/cable installation.
 
 ## Flashing Prebuilt Firmware
 
