@@ -19,7 +19,7 @@ For simplicity, use the Xbox **LPC header** for power and ground.
 
 Use:
 
-- **LPC Pin 6 — 5V**, 1.6 / 1.6b use alt switched 5V point.
+- **LPC Pin 6 — 5V**, **1.6 / 1.6b use alt switched 5V point.**
 - **LPC Pin 12 — GND**
 
 ![1.6 Alt 5V](16_alt_5v.png)
