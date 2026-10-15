@@ -26,6 +26,10 @@ The main controller stays inside the Xbox and connects to the front LED board wi
 - Smoothed LAN/HDD activity indication for short pulses
 - Compact two-board design with FPC connection
 
+## Where to buy
+
+<a href="https://www.darkonecustoms.com/store/p/xai">Darkone Customs</a>
+
 ## Default Settings
 
 - **RGB1 / LAN:** Amber
