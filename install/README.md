@@ -4,7 +4,7 @@ This guide covers the basic Xbox-side wiring required to install XAI.
 
 XAI needs four connections from the Xbox motherboard:
 
-- **3.3V**
+- **5V**
 - **GND**
 - **LAN activity**
 - **HDD activity**
@@ -19,7 +19,7 @@ For simplicity, use the Xbox **LPC header** for power and ground.
 
 Use:
 
-- **LPC Pin 15 — 3.3V**
+- **LPC Pin 6 — 5V**
 - **LPC Pin 12 — GND**
 
 These points are suitable across Xbox motherboard revisions, including later boards where some other LPC power/ground pads are not populated.
@@ -45,7 +45,7 @@ Connect the four Xbox-side wires to the XAI SH connector/harness:
 
 | Xbox Connection | XAI |
 |---|---|
-| LPC Pin 15 | 3.3V |
+| LPC Pin 6 | 5V |
 | LPC Pin 12 | GND |
 | LAN LED point | LAN |
 | HDD LED point | HDD |

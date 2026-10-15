@@ -1,45 +1,44 @@
 /*
- * CH32V003A4M6 dual-input RGB indicator controller
- *
- * Community-PIO-CH32V / WCH NoneOS SDK build.
+ * XAI - Xbox Activity Indicator
+ * CH32V003A4M6 / Community-PIO-CH32V / WCH NoneOS SDK
  *
  * Wiring (SOP-16):
- *   PC1 / pin 1  -> LAN status input from Q1 (active high at MCU)
- *   PC2 / pin 2  -> HDD status input from Q1 (active high at MCU)
+ *   PC1 / pin 1  -> Xbox LAN LED control through 10K (active low)
+ *   PC2 / pin 2  -> Xbox HDD LED control through 10K (active low)
  *   PC3 / pin 3  -> Setup button to GND (internal pull-up)
  *   PC4 / pin 4  -> SK6812 LED 1 DIN (RGB1)
  *   PC6 / pin 5  -> SK6812 LED 2 DIN (RGB2)
- *   PD1 / pin 7  -> SWIO programming/debug (leave dedicated)
+ *   PD1 / pin 7  -> SWIO programming/debug
  *
- *   LED 1 and LED 2 are intentionally independent.
- *   Each LED DOUT is unused.
+ * RGB1 and RGB2 are independent; both LED DOUT pins are unused.
  *
- * Normal:
- *   LAN input  (PC1) -> logical LAN indicator.
- *   HDD input  (PC2) -> logical HDD indicator.
- *   Default mapping: RGB1/PC4 = LAN, RGB2/PC6 = HDD.
- *   Reverse setting swaps the two physical indicator positions.
- *   Double press toggles normal activity indication on/off.
- *   Five rapid presses run a non-destructive LED self-diagnostic.
- *   Activity indication always starts enabled after power-up.
- *   LAN/HDD activity is pulse-stretched to a 50 ms minimum visible on-time.
+ * Normal operation:
+ *   HIGH = idle, LOW = activity on PC1/PC2.
+ *   Inputs use the CH32V003 internal pull-ups.
+ *   Activity is sampled every 500 us (2 kHz).
+ *   Pulse onset is immediate.
+ *   When activity ends, the RGB indicator gets a 12 ms smooth fade to off.
+ *   A new pulse during the fade immediately restores full brightness.
  *
- * Defaults:
- *   LAN = Amber, HDD = Red, brightness = 100%, reverse = off.
+ * Default mapping:
+ *   RGB1 = LAN (Amber)
+ *   RGB2 = HDD (Red)
+ *   Brightness = 100%
+ *   Reverse = Off
+ *
+ * Controls:
+ *   Double press -> toggle normal activity indication on/off.
+ *   Five presses -> run LED self-diagnostic.
  *
  * Setup:
- *   Hold button 3 s -> both LEDs blink red twice, then edit LAN color.
- *   Single press    -> cycle/toggle the current setting.
- *   Double press    -> LAN color -> HDD color -> brightness -> reverse -> LAN.
- *   Brightness      -> 10 levels: 10% through 100% in 10% steps.
- *   Reverse preview -> LAN position is green, HDD position is red.
- *   Hold button 3 s -> save all settings, blink both LEDs green twice,
- *                      then resume normal operation.
- *   15 s inactivity   -> discard unsaved changes and return to normal.
+ *   Hold 3 s      -> enter setup (red confirmation).
+ *   Single press  -> change current setting.
+ *   Double press  -> LAN color -> HDD color -> brightness -> reverse.
+ *   Hold 3 s      -> save and exit (green confirmation).
+ *   15 s idle     -> discard unsaved changes and exit.
  *
  * Factory reset:
- *   Hold button 10 s -> restore defaults and save them to flash.
- *   Successful reset flashes both LEDs Green -> Orange -> Red.
+ *   Hold 10 s -> restore defaults and save to flash.
  */
 
 #include "debug.h"
@@ -56,20 +55,21 @@
 #define LED2_PIN        GPIO_Pin_6   /* PC6 / RGB2 */
 #define LED_PIN_MASK    (LED1_PIN | LED2_PIN)
 
-#define LOOP_MS             5U
-#define DEBOUNCE_MS        20U
-#define LONG_PRESS_MS    3000U
+#define LOOP_US            500U
+#define DEBOUNCE_MS         20U
+#define LONG_PRESS_MS     3000U
 #define RESET_HOLD_MS    10000U
-#define DOUBLE_PRESS_MS    350U
-#define ACTIVITY_HOLD_MS    50U
+#define DOUBLE_PRESS_MS     350U
 #define SETUP_TIMEOUT_MS  15000U
+#define ACTIVITY_FADE_MS     12U
 
-#define DEBOUNCE_TICKS       (DEBOUNCE_MS / LOOP_MS)
-#define LONG_PRESS_TICKS     (LONG_PRESS_MS / LOOP_MS)
-#define RESET_HOLD_TICKS     (RESET_HOLD_MS / LOOP_MS)
-#define DOUBLE_PRESS_TICKS   (DOUBLE_PRESS_MS / LOOP_MS)
-#define ACTIVITY_HOLD_TICKS  (ACTIVITY_HOLD_MS / LOOP_MS)
-#define SETUP_TIMEOUT_TICKS  (SETUP_TIMEOUT_MS / LOOP_MS)
+#define MS_TO_TICKS(ms)       ((uint16_t)(((uint32_t)(ms) * 1000U) / LOOP_US))
+#define DEBOUNCE_TICKS        MS_TO_TICKS(DEBOUNCE_MS)
+#define LONG_PRESS_TICKS      MS_TO_TICKS(LONG_PRESS_MS)
+#define RESET_HOLD_TICKS      MS_TO_TICKS(RESET_HOLD_MS)
+#define DOUBLE_PRESS_TICKS    MS_TO_TICKS(DOUBLE_PRESS_MS)
+#define SETUP_TIMEOUT_TICKS   MS_TO_TICKS(SETUP_TIMEOUT_MS)
+#define ACTIVITY_FADE_TICKS    MS_TO_TICKS(ACTIVITY_FADE_MS)
 
 #define COLOR_COUNT        16U
 #define BRIGHTNESS_LEVELS  10U
@@ -373,6 +373,79 @@ static rgb_t scale_color(rgb_t color, uint8_t brightness)
     return out;
 }
 
+static rgb_t scale_percent(rgb_t color, uint8_t percent)
+{
+    rgb_t out;
+
+    if (percent >= 100U)
+        return color;
+
+    out.r = (uint8_t)(((uint16_t)color.r * percent) / 100U);
+    out.g = (uint8_t)(((uint16_t)color.g * percent) / 100U);
+    out.b = (uint8_t)(((uint16_t)color.b * percent) / 100U);
+
+    return out;
+}
+
+/*/*
+ * Convert a raw active-low activity state into a visual brightness level.
+ *
+ * Attack is immediate: active always returns 100%.
+ *
+ * Release is a 12 ms smoothstep fade from 100% to 0%. Smoothstep gives the
+ * release a relaxed start and finish without adding a minimum-on hold. A new
+ * activity pulse at any point immediately returns the channel to 100%.
+ *
+ * The fade is visual-only; it does not alter input sampling or pulse detection.
+ */
+static uint8_t activity_visual_percent(uint8_t active, uint16_t *fade_ticks)
+{
+    uint32_t elapsed;
+    uint32_t total;
+    uint32_t x2;
+    uint32_t x3;
+    uint32_t smooth_num;
+    uint32_t smooth_den;
+    uint32_t fade_percent;
+
+    if (active)
+    {
+        *fade_ticks = ACTIVITY_FADE_TICKS;
+        return 100U;
+    }
+
+    if (*fade_ticks == 0U)
+        return 0U;
+
+    --(*fade_ticks);
+
+    if (*fade_ticks == 0U)
+        return 0U;
+
+    total = ACTIVITY_FADE_TICKS;
+    elapsed = total - *fade_ticks;
+
+    /*
+     * smoothstep(x) = 3x^2 - 2x^3
+     *
+     * We want brightness = 1 - smoothstep(progress), evaluated entirely with
+     * integer arithmetic. With a 12 ms fade at a 500 us loop, total is only
+     * 24 steps, so 32-bit math has ample headroom.
+     */
+    x2 = elapsed * elapsed;
+    x3 = x2 * elapsed;
+
+    smooth_num = (3U * x2 * total) - (2U * x3);
+    smooth_den = total * total * total;
+
+    fade_percent = 100U - ((smooth_num * 100U) / smooth_den);
+
+    if (fade_percent > 100U)
+        fade_percent = 100U;
+
+    return (uint8_t)fade_percent;
+}
+
 static void leds_write_logical(rgb_t lan, rgb_t hdd, uint8_t reverse)
 {
     if (reverse)
@@ -434,12 +507,11 @@ static void gpio_init(void)
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
 
     /*
-     * Q1 drives these nodes high when active. When Q1 is off its drain is
-     * otherwise floating, so use the MCU internal pull-downs as the inactive
-     * state without adding external resistors.
+     * Direct Xbox LED-control inputs through the existing 10K resistors.
+     * Internal pull-ups provide the idle HIGH state; activity pulls LOW.
      */
     gpio.GPIO_Pin = INPUT1_PIN | INPUT2_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(GPIOC, &gpio);
 
     /* Setup button: active low using internal pull-up. */
@@ -448,14 +520,19 @@ static void gpio_init(void)
     GPIO_Init(GPIOC, &gpio);
 }
 
-static uint8_t input1_active(void)
+static uint8_t activity_raw_mask(void)
 {
-    return (GPIO_ReadInputDataBit(GPIOC, INPUT1_PIN) == Bit_SET) ? 1U : 0U;
-}
+    uint32_t inputs = GPIOC->INDR;
+    uint8_t mask = 0U;
 
-static uint8_t input2_active(void)
-{
-    return (GPIO_ReadInputDataBit(GPIOC, INPUT2_PIN) == Bit_SET) ? 1U : 0U;
+    /* LOW means the Xbox is asserting activity. */
+    if ((inputs & INPUT1_PIN) == 0U)
+        mask |= 0x01U; /* LAN */
+
+    if ((inputs & INPUT2_PIN) == 0U)
+        mask |= 0x02U; /* HDD */
+
+    return mask;
 }
 
 static uint8_t button_is_pressed(void)
@@ -830,9 +907,10 @@ static uint8_t factory_reset(void)
 
 int main(void)
 {
-    uint8_t last_input_mask = 0xFFU;
-    uint16_t lan_hold_ticks = 0U;
-    uint16_t hdd_hold_ticks = 0U;
+    uint8_t last_lan_percent = 0xFFU;
+    uint8_t last_hdd_percent = 0xFFU;
+    uint16_t lan_fade_ticks = 0U;
+    uint16_t hdd_fade_ticks = 0U;
     uint16_t setup_idle_ticks = 0U;
 
     SystemCoreClockUpdate();
@@ -857,11 +935,12 @@ int main(void)
         if (event == BUTTON_RESET)
         {
             (void)factory_reset();
-            lan_hold_ticks = 0U;
-            hdd_hold_ticks = 0U;
             setup_idle_ticks = 0U;
-            last_input_mask = 0xFFU;
-            Delay_Ms(LOOP_MS);
+            lan_fade_ticks = 0U;
+            hdd_fade_ticks = 0U;
+            last_lan_percent = 0xFFU;
+            last_hdd_percent = 0xFFU;
+            Delay_Us(LOOP_US);
             continue;
         }
 
@@ -869,11 +948,12 @@ int main(void)
         {
             if (event == BUTTON_LONG)
             {
-                lan_hold_ticks = 0U;
-                hdd_hold_ticks = 0U;
                 setup_idle_ticks = 0U;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
                 enter_setup();
-                last_input_mask = 0xFFU;
+                last_lan_percent = 0xFFU;
+                last_hdd_percent = 0xFFU;
             }
             else if (event == BUTTON_DIAGNOSTIC)
             {
@@ -882,9 +962,6 @@ int main(void)
                  * Saved configuration and the runtime activity on/off state
                  * are left unchanged.
                  */
-                lan_hold_ticks = 0U;
-                hdd_hold_ticks = 0U;
-
                 run_diagnostics();
 
                 /*
@@ -892,7 +969,10 @@ int main(void)
                  * sequence and force the current activity state to refresh.
                  */
                 button_init();
-                last_input_mask = 0xFFU;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
+                last_lan_percent = 0xFFU;
+                last_hdd_percent = 0xFFU;
             }
             else if (event == BUTTON_DOUBLE)
             {
@@ -903,97 +983,72 @@ int main(void)
                 g_activity_enabled ^= 1U;
 
                 /*
-                 * Do not preserve a stale activity pulse across an off/on
-                 * toggle. Re-enabling starts from the current raw inputs.
+                 * Never preserve a visual fade across an activity-display
+                 * toggle. Re-enable from the current raw inputs.
                  */
-                lan_hold_ticks = 0U;
-                hdd_hold_ticks = 0U;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
 
                 if (!g_activity_enabled)
-                {
                     leds_off();
-                }
 
-                /*
-                 * Force an immediate refresh when re-enabled so the LEDs
-                 * reflect the current LAN/HDD state without waiting for the
-                 * next input transition.
-                 */
-                last_input_mask = 0xFFU;
+                last_lan_percent = 0xFFU;
+                last_hdd_percent = 0xFFU;
             }
             else if (!g_activity_enabled)
             {
-                /*
-                 * Normal activity indication stays dark until double-clicked
-                 * back on. Clear the pulse-stretch timers so old activity
-                 * cannot reappear when indication is re-enabled.
-                 */
-                lan_hold_ticks = 0U;
-                hdd_hold_ticks = 0U;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
 
-                if (last_input_mask != 0U)
+                if ((last_lan_percent != 0U) || (last_hdd_percent != 0U))
                 {
                     leds_off();
-                    last_input_mask = 0U;
+                    last_lan_percent = 0U;
+                    last_hdd_percent = 0U;
                 }
             }
             else
             {
-                uint8_t input_mask = 0U;
+                uint8_t raw_mask = activity_raw_mask();
+
+                uint8_t lan_percent =
+                    activity_visual_percent(
+                        (raw_mask & 0x01U) ? 1U : 0U,
+                        &lan_fade_ticks);
+
+                uint8_t hdd_percent =
+                    activity_visual_percent(
+                        (raw_mask & 0x02U) ? 1U : 0U,
+                        &hdd_fade_ticks);
 
                 /*
-                 * Do not debounce the Xbox activity inputs in the conventional
-                 * sense; short pulses are valid activity. Turn on immediately,
-                 * then hold each indicator for at least ACTIVITY_HOLD_MS after
-                 * the last observed pulse.
+                 * Input response remains immediate and 1:1 while asserted.
+                 * Only the release edge receives the short visual fade.
                  */
-                if (input1_active())
+                if ((lan_percent != last_lan_percent) ||
+                    (hdd_percent != last_hdd_percent))
                 {
-                    lan_hold_ticks = ACTIVITY_HOLD_TICKS;
-                }
-                else if (lan_hold_ticks > 0U)
-                {
-                    --lan_hold_ticks;
-                }
-
-                if (input2_active())
-                {
-                    hdd_hold_ticks = ACTIVITY_HOLD_TICKS;
-                }
-                else if (hdd_hold_ticks > 0U)
-                {
-                    --hdd_hold_ticks;
-                }
-
-                if (lan_hold_ticks > 0U)
-                    input_mask |= 0x01U; /* LAN */
-
-                if (hdd_hold_ticks > 0U)
-                    input_mask |= 0x02U; /* HDD */
-
-                if (input_mask != last_input_mask)
-                {
-                    rgb_t lan =
-                        (input_mask & 0x01U) ?
+                    rgb_t lan_base =
                         scale_color(kColors[g_saved_color[SETTING_LAN]],
-                                    g_saved_brightness) : kOff;
+                                    g_saved_brightness);
 
-                    rgb_t hdd =
-                        (input_mask & 0x02U) ?
+                    rgb_t hdd_base =
                         scale_color(kColors[g_saved_color[SETTING_HDD]],
-                                    g_saved_brightness) : kOff;
+                                    g_saved_brightness);
+
+                    rgb_t lan = scale_percent(lan_base, lan_percent);
+                    rgb_t hdd = scale_percent(hdd_base, hdd_percent);
 
                     leds_write_logical(lan, hdd, g_saved_reverse);
-                    last_input_mask = input_mask;
+
+                    last_lan_percent = lan_percent;
+                    last_hdd_percent = hdd_percent;
                 }
             }
         }
         else
         {
             /* Activity inputs are ignored while configuring XAI. */
-            lan_hold_ticks = 0U;
-            hdd_hold_ticks = 0U;
-
             /*
              * Setup auto-exit: any valid setup action restarts the 15-second
              * inactivity window. If it expires, unsaved edits are discarded.
@@ -1016,11 +1071,10 @@ int main(void)
                 setup_idle_ticks = 0U;
                 leds_off();
 
-                /*
-                 * Force normal activity indication to reflect the live inputs
-                 * immediately on return. Saved settings were never modified.
-                 */
-                last_input_mask = 0xFFU;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
+                last_lan_percent = 0xFFU;
+                last_hdd_percent = 0xFFU;
             }
             else if (event == BUTTON_SINGLE)
             {
@@ -1067,11 +1121,14 @@ int main(void)
             {
                 save_and_exit_setup();
                 setup_idle_ticks = 0U;
-                last_input_mask = 0xFFU;
+                lan_fade_ticks = 0U;
+                hdd_fade_ticks = 0U;
+                last_lan_percent = 0xFFU;
+                last_hdd_percent = 0xFFU;
             }
         }
 
-        Delay_Ms(LOOP_MS);
+        Delay_Us(LOOP_US);
     }
 }
 
