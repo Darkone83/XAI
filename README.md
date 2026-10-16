@@ -240,4 +240,4 @@ Purchase link: <a href="https://www.aliexpress.us/item/3256810089762446.html?spm
 
 XAI is designed for the original Xbox and is intended to provide simple, configurable HDD and LAN activity indicators without requiring complex software or permanent front-panel modifications.
 
-More hardware, installation, and release information will be added as the project moves through production testing.
+When ordering the LED board 1.0mm thickness is recommended
